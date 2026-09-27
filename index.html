@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Chinchón Móvil</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Dark fallback */
+            user-select: none;
+            overflow: hidden; /* Prevent pull-to-refresh */
+        }
+
+        .table-cloth {
+            background: radial-gradient(circle, #1f6f43 0%, #0d381e 100%);
+            box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+        }
+
+        /* Card Styles */
+        .playing-card {
+            width: 15vw;
+            max-width: 65px;
+            height: 22vw;
+            max-height: 95px;
+            background-color: white;
+            border-radius: 6px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 4px;
+            position: relative;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+            border: 1px solid #cbd5e1;
+        }
+
+        .playing-card.selected {
+            transform: translateY(-10px);
+            box-shadow: 0 0 0 3px #fbbf24, 0 8px 15px rgba(0,0,0,0.4);
+            z-index: 10;
+        }
+
+        .playing-card.opponent {
+            background: repeating-linear-gradient(
+                45deg,
+                #1e3a8a,
+                #1e3a8a 10px,
+                #172554 10px,
+                #172554 20px
+            );
+            border: 2px solid white;
+        }
+
+        .card-value {
+            font-size: 1.1rem;
+            font-weight: 800;
+            line-height: 1;
+        }
+        
+        .card-suit {
+            font-size: 1.8rem;
+            text-align: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .suit-oro { color: #d97706; }
+        .suit-copa { color: #dc2626; }
+        .suit-espada { color: #2563eb; }
+        .suit-basto { color: #16a34a; }
+        .suit-joker { color: #9333ea; }
+
+        /* Hand Layouts */
+        .hand-container {
+            display: flex;
+            justify-content: center;
+            gap: -2vw;
+            padding: 10px;
+        }
+
+        .hand-container .playing-card {
+            margin-left: -5vw;
+        }
+        .hand-container .playing-card:first-child {
+            margin-left: 0;
+        }
+
+        /* Modals */
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+        }
+
+        .btn {
+            transition: transform 0.1s;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Notifications */
+        #toast {
+            transition: opacity 0.3s, transform 0.3s;
+            transform: translateY(-20px);
+            opacity: 0;
+            pointer-events: none;
+        }
+        #toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="text-white h-full w-full">
+
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed top-4 left-1/2 transform -translate-x-1/2 bg-gray-900 text-white px-6 py-3 rounded-full shadow-lg z-50 font-semibold text-sm">
+        Mensaje
+    </div>
+
+    <!-- VIEW 1: Main Menu -->
+    <div id="menuView" class="h-full w-full table-cloth flex flex-col items-center justify-center p-6 absolute inset-0 z-40">
+        <h1 class="text-5xl font-black mb-2 text-yellow-400 drop-shadow-md tracking-tighter">CHINCHÓN</h1>
+        <p class="text-gray-200 mb-10 text-center text-sm">Multijugador en vivo</p>
+        
+        <button onclick="createRoom()" class="btn w-full max-w-xs bg-yellow-500 hover:bg-yellow-400 text-yellow-900 font-bold py-4 rounded-xl shadow-lg mb-4 text-lg">
+            Crear Partida (Host)
+        </button>
+        
+        <div class="w-full max-w-xs flex flex-col items-center border-t border-white/20 pt-6 mt-2">
+            <h2 class="text-lg font-semibold mb-3">Unirse a un amigo</h2>
+            <input type="text" id="joinCode" placeholder="CÓDIGO (Ej: A4XY)" maxlength="4" class="w-full text-center text-2xl font-black text-gray-900 rounded-lg py-3 mb-3 uppercase tracking-widest outline-none border-2 border-transparent focus:border-yellow-400">
+            <button onclick="joinRoom()" class="btn w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 rounded-xl shadow-lg text-lg">
+                Ingresar
+            </button>
+        </div>
+    </div>
+
+    <!-- VIEW 2: Waiting Room -->
+    <div id="waitingView" class="h-full w-full table-cloth flex flex-col items-center justify-center p-6 absolute inset-0 z-30 hidden">
+        <h2 class="text-2xl font-bold mb-4">Tu sala está lista</h2>
+        <p class="text-gray-300 mb-2">Pásale este código a tu rival:</p>
+        <div class="bg-white text-gray-900 text-6xl font-black tracking-widest px-8 py-4 rounded-2xl shadow-inner mb-8" id="displayCode">
+            ----
+        </div>
+        <div class="flex items-center space-x-3 text-yellow-400">
+            <svg class="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="font-semibold text-lg">Esperando jugador...</span>
+        </div>
+    </div>
+
+    <!-- VIEW 3: Game Board -->
+    <div id="gameView" class="h-full w-full table-cloth flex flex-col justify-between absolute inset-0 z-20 hidden">
+        
+        <!-- Top: Opponent Info -->
+        <div class="w-full p-2 flex flex-col items-center pt-6 relative">
+            <div class="bg-black/40 px-4 py-1 rounded-full text-xs font-semibold mb-2">Rival (Cartas: <span id="oppCardCount">7</span>)</div>
+            <div class="hand-container scale-75 opacity-90" id="opponentHand">
+                <!-- Opponent cards rendered here (backs) -->
+            </div>
+            <!-- Opponent Turn Indicator -->
+            <div id="oppTurnBadge" class="absolute top-4 right-4 bg-yellow-500 text-yellow-900 text-xs font-bold px-2 py-1 rounded hidden animate-pulse">Su turno</div>
+        </div>
+
+        <!-- Middle: Table / Deck / Discard -->
+        <div class="flex-1 flex flex-col items-center justify-center relative">
+            <div id="statusMsg" class="absolute top-0 text-sm font-semibold bg-black/50 px-4 py-1 rounded-full text-yellow-300 shadow-md">
+                Es tu turno - Roba una carta
+            </div>
+            
+            <div class="flex gap-6 items-center mt-4">
+                <!-- Deck -->
+                <div class="flex flex-col items-center">
+                    <div id="deck" onclick="handleDeckClick()" class="playing-card opponent flex items-center justify-center shadow-2xl relative">
+                        <span class="text-white font-bold opacity-50">MAZO</span>
+                        <div id="deckCount" class="absolute -top-3 -right-3 bg-gray-800 text-xs rounded-full w-6 h-6 flex items-center justify-center border border-gray-600">--</div>
+                    </div>
+                    <span class="text-xs mt-2 font-semibold opacity-75">Robar</span>
+                </div>
+
+                <!-- Discard Pile -->
+                <div class="flex flex-col items-center">
+                    <div id="discardPile" onclick="handleDiscardClick()" class="relative w-[15vw] max-w-[65px] h-[22vw] max-h-[95px]">
+                        <!-- Discard cards rendered here -->
+                    </div>
+                    <span class="text-xs mt-2 font-semibold opacity-75">Pozo</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom: Player Hand & Controls -->
+        <div class="w-full p-2 pb-6 flex flex-col items-center bg-gradient-to-t from-black/60 to-transparent">
+            <!-- Controls -->
+            <div class="flex gap-4 mb-4 h-12 w-full max-w-sm px-4 justify-center" id="actionControls">
+                <button id="btnDiscard" onclick="submitDiscard()" class="btn flex-1 bg-blue-600 text-white font-bold rounded-lg shadow-lg opacity-50 pointer-events-none transition-all">
+                    Descartar
+                </button>
+                <button id="btnCut" onclick="submitCut()" class="btn flex-1 bg-red-600 text-white font-bold rounded-lg shadow-lg opacity-50 pointer-events-none transition-all">
+                    ¡CORTAR!
+                </button>
+            </div>
+            
+            <!-- My Hand -->
+            <div class="hand-container w-full px-4" id="myHand">
+                <!-- My cards rendered here -->
+            </div>
+            <div class="text-[10px] text-gray-400 mt-2 text-center leading-tight">
+                Toca una carta para seleccionarla.<br>Toca otra para intercambiar lugar.
+            </div>
+            <!-- My Turn Indicator -->
+            <div id="myTurnBadge" class="absolute bottom-4 right-4 bg-yellow-500 text-yellow-900 text-xs font-bold px-2 py-1 rounded hidden animate-pulse">¡Tu Turno!</div>
+        </div>
+    </div>
+
+    <!-- VIEW 4: End Game Results -->
+    <div id="endView" class="modal-overlay h-full w-full absolute inset-0 z-50 flex flex-col items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 text-gray-900 text-center shadow-2xl">
+            <h2 id="endTitle" class="text-3xl font-black mb-1 text-blue-700">¡Ganaste!</h2>
+            <p id="endSubtitle" class="text-sm text-gray-600 mb-6">Alguien cortó la partida</p>
+            
+            <div class="mb-4 text-left">
+                <p class="font-bold text-sm mb-1 text-blue-800 border-b pb-1">Tu mano:</p>
+                <div class="hand-container scale-75 origin-left" id="endMyHand"></div>
+            </div>
+            
+            <div class="mb-6 text-left">
+                <p class="font-bold text-sm mb-1 text-red-800 border-b pb-1">Mano rival:</p>
+                <div class="hand-container scale-75 origin-left" id="endOppHand"></div>
+            </div>
+
+            <button onclick="goHome()" class="btn w-full bg-gray-900 text-white font-bold py-3 rounded-xl shadow">
+                Volver al Menú
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global configuration injected by environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'chinchon-app-default';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        
+        let app, db, auth;
+        let currentUser = null;
+        let unsubscribeRoom = null;
+
+        // Game State variables
+        let currentRoomCode = null;
+        let myRole = null; // 'host' or 'guest'
+        let opponentRole = null;
+        let gameState = null; // The firestore doc data
+        let localHand = []; // Keeps track of sorting locally
+        let selectedCardIndex = null;
+        
+        // Deck Definition (Mazo Español 40 + 1 Comodín)
+        const SUITS = [
+            { id: 'O', name: 'oros', icon: '🪙', color: 'suit-oro' },
+            { id: 'C', name: 'copas', icon: '🍷', color: 'suit-copa' },
+            { id: 'E', name: 'espadas', icon: '🗡️', color: 'suit-espada' },
+            { id: 'B', name: 'bastos', icon: '🌿', color: 'suit-basto' }
+        ];
+        const VALUES = ['1', '2', '3', '4', '5', '6', '7', '10', '11', '12'];
+
+        async function initApp() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Strict auth rule: Auth before queries
+                if (typeof __initial_auth_token !== 'undefined') {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                currentUser = auth.currentUser;
+                console.log("Authenticated as:", currentUser.uid);
+            } catch (error) {
+                console.error("Firebase init error:", error);
+                showToast("Error de conexión");
+            }
+        }
+
+        // Helpers
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 3000);
+        }
+
+        function generateCode() {
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let result = '';
+            for (let i = 0; i < 4; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
+            return result;
+        }
+
+        function switchView(viewId) {
+            ['menuView', 'waitingView', 'gameView', 'endView'].forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            document.getElementById(viewId).classList.remove('hidden');
+        }
+
+        window.goHome = () => {
+            if(unsubscribeRoom) unsubscribeRoom();
+            currentRoomCode = null;
+            myRole = null;
+            selectedCardIndex = null;
+            switchView('menuView');
+        }
+
+        function generateDeck() {
+            let deck = [];
+            let idCounter = 0;
+            SUITS.forEach(suit => {
+                VALUES.forEach(val => {
+                    deck.push({ id: `c${idCounter++}`, suit: suit.id, value: val, icon: suit.icon, color: suit.color });
+                });
+            });
+            // Add Comodín (Joker)
+            deck.push({ id: `c${idCounter++}`, suit: 'J', value: 'J', icon: '🃏', color: 'suit-joker', isJoker: true });
+            return shuffle(deck);
+        }
+
+        function shuffle(array) {
+            let currentIndex = array.length, randomIndex;
+            while (currentIndex > 0) {
+                randomIndex = Math.floor(Math.random() * currentIndex);
+                currentIndex--;
+                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            }
+            return array;
+        }
+
+        window.createRoom = async () => {
+            if (!currentUser) return;
+            const code = generateCode();
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code);
+            
+            const fullDeck = generateDeck();
+            const hostHand = fullDeck.splice(0, 7);
+            const guestHand = fullDeck.splice(0, 7);
+            const initialDiscard = fullDeck.splice(0, 1);
+
+            const initialState = {
+                status: 'waiting', // waiting, playing, finished
+                host: currentUser.uid,
+                guest: null,
+                deck: fullDeck,
+                discardPile: initialDiscard,
+                hands: { host: hostHand, guest: guestHand },
+                turn: currentUser.uid, // host starts
+                phase: 'draw', // 'draw' or 'discard'
+                winnerInfo: null
+            };
+
+            try {
+                await setDoc(roomRef, initialState);
+                currentRoomCode = code;
+                myRole = 'host';
+                opponentRole = 'guest';
+                
+                document.getElementById('displayCode').innerText = code;
+                switchView('waitingView');
+                startListening(code);
+            } catch (error) {
+                console.error("Error creating room:", error);
+                showToast("Error al crear sala");
+            }
+        };
+
+        window.joinRoom = async () => {
+            if (!currentUser) return;
+            let code = document.getElementById('joinCode').value.trim().toUpperCase();
+            if(code.length !== 4) {
+                showToast("Código inválido");
+                return;
+            }
+
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code);
+            try {
+                const docSnap = await getDoc(roomRef);
+                if (!docSnap.exists()) {
+                    showToast("Sala no encontrada");
+                    return;
+                }
+                const data = docSnap.data();
+                if (data.status !== 'waiting') {
+                    showToast("La partida ya empezó o finalizó");
+                    return;
+                }
+                if (data.host === currentUser.uid) {
+                    showToast("No puedes unirte a tu propia sala así");
+                    return;
+                }
+
+                // Join!
+                await updateDoc(roomRef, {
+                    guest: currentUser.uid,
+                    status: 'playing'
+                });
+
+                currentRoomCode = code;
+                myRole = 'guest';
+                opponentRole = 'host';
+                startListening(code);
+            } catch (error) {
+                console.error("Error joining room:", error);
+                showToast("Error al unirse");
+            }
+        };
+
+        function startListening(code) {
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code);
+            unsubscribeRoom = onSnapshot(roomRef, (snapshot) => {
+                if (!snapshot.exists()) {
+                    showToast("La sala se cerró");
+                    goHome();
+                    return;
+                }
+                
+                const data = snapshot.data();
+                const previousStatus = gameState ? gameState.status : null;
+                gameState = data;
+
+                // Handle Transitions
+                if (data.status === 'playing' && previousStatus === 'waiting') {
+                    switchView('gameView');
+                    showToast("¡Partida Iniciada!");
+                    // Initialize local hand exactly once on start
+                    localHand = [...data.hands[myRole]]; 
+                }
+
+                if (data.status === 'playing') {
+                    renderGame(data);
+                } else if (data.status === 'finished') {
+                    renderEndGame(data);
+                }
+
+            }, (error) => {
+                console.error("Listen error:", error);
+            });
+        }
+
+        function renderGame(data) {
+            const isMyTurn = data.turn === currentUser.uid;
+            const oppCardCount = data.hands[opponentRole].length;
+            
+            // Sync local hand ONLY if length differs (meaning a draw or discard happened remotely via my action)
+            // This prevents overwriting local sorting.
+            if (localHand.length !== data.hands[myRole].length) {
+                localHand = [...data.hands[myRole]];
+                selectedCardIndex = null; // reset selection on hand size change
+            }
+
+            // Status message
+            const statusEl = document.getElementById('statusMsg');
+            if (isMyTurn) {
+                statusEl.textContent = data.phase === 'draw' ? 'Roba una carta (Mazo o Pozo)' : 'Descartá una carta';
+                statusEl.className = 'absolute top-0 text-sm font-semibold px-4 py-1 rounded-full shadow-md bg-yellow-400 text-yellow-900 animate-pulse';
+            } else {
+                statusEl.textContent = 'Esperando al rival...';
+                statusEl.className = 'absolute top-0 text-sm font-semibold px-4 py-1 rounded-full shadow-md bg-black/50 text-gray-300';
+            }
+
+            // Badges
+            document.getElementById('myTurnBadge').style.display = isMyTurn ? 'block' : 'none';
+            document.getElementById('oppTurnBadge').style.display = !isMyTurn ? 'block' : 'none';
+
+            // Opponent Hand (Backs)
+            document.getElementById('oppCardCount').textContent = oppCardCount;
+            const oppHandContainer = document.getElementById('opponentHand');
+            oppHandContainer.innerHTML = '';
+            for(let i=0; i<oppCardCount; i++) {
+                oppHandContainer.innerHTML += `<div class="playing-card opponent"></div>`;
+            }
+
+            // Deck
+            document.getElementById('deckCount').textContent = data.deck.length;
+            
+            // Discard Pile (Top card)
+            const discardPileEl = document.getElementById('discardPile');
+            discardPileEl.innerHTML = '';
+            if (data.discardPile.length > 0) {
+                const topCard = data.discardPile[data.discardPile.length - 1];
+                discardPileEl.innerHTML = renderCardHTML(topCard, false);
+                // add slight random rotation for effect
+                discardPileEl.firstElementChild.style.transform = `rotate(${(data.discardPile.length * 7) % 20 - 10}deg)`;
+                discardPileEl.firstElementChild.style.position = 'absolute';
+            }
+
+            // Action Controls update
+            const btnDiscard = document.getElementById('btnDiscard');
+            const btnCut = document.getElementById('btnCut');
+            
+            if (isMyTurn && data.phase === 'discard' && selectedCardIndex !== null) {
+                btnDiscard.classList.remove('opacity-50', 'pointer-events-none');
+                btnCut.classList.remove('opacity-50', 'pointer-events-none');
+            } else {
+                btnDiscard.classList.add('opacity-50', 'pointer-events-none');
+                btnCut.classList.add('opacity-50', 'pointer-events-none');
+            }
+
+            renderMyHand();
+        }
+
+        function renderCardHTML(card, isInteractive = false, index = -1) {
+            if(!card) return '';
+            const selectedClass = (isInteractive && index === selectedCardIndex) ? 'selected' : '';
+            const valStr = card.isJoker ? '' : card.value;
+            const suitStr = card.icon;
+            
+            return `
+                <div class="playing-card ${selectedClass}" ${isInteractive ? `onclick="handleCardClick(${index})"` : ''}>
+                    <div class="card-value ${card.color}">${valStr}</div>
+                    <div class="card-suit ${card.color}">${suitStr}</div>
+                    <div class="card-value ${card.color} text-right rotate-180">${valStr}</div>
+                </div>
+            `;
+        }
+
+        window.renderMyHand = () => {
+            const container = document.getElementById('myHand');
+            container.innerHTML = localHand.map((card, idx) => renderCardHTML(card, true, idx)).join('');
+        };
+
+        window.handleCardClick = async (index) => {
+            // Swap logic for sorting
+            if (selectedCardIndex !== null && selectedCardIndex !== index) {
+                // Swap the two cards
+                const temp = localHand[selectedCardIndex];
+                localHand[selectedCardIndex] = localHand[index];
+                localHand[index] = temp;
+                
+                selectedCardIndex = index; // Keep newly moved card selected
+                renderMyHand();
+                
+                // Sync sorted hand to firestore quietly
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomCode);
+                try {
+                    await updateDoc(roomRef, { [`hands.${myRole}`]: localHand });
+                } catch(e) { console.error("Error syncing sort", e); }
+                
+                return;
+            }
+
+            // Toggle selection
+            if (selectedCardIndex === index) {
+                selectedCardIndex = null;
+            } else {
+                selectedCardIndex = index;
+            }
+            
+            // Re-render to update UI classes & buttons
+            renderGame(gameState); 
+        };
+
+        window.handleDeckClick = async () => {
+            if (!canDraw()) return;
+            if (gameState.deck.length === 0) {
+                // Deck empty, reshuffle discard pile (keep top card)
+                if (gameState.discardPile.length > 1) {
+                    let newDiscard = gameState.discardPile.pop(); // keep top
+                    let newDeck = shuffle([...gameState.discardPile]);
+                    gameState.deck = newDeck;
+                    gameState.discardPile = [newDiscard];
+                    showToast("Mazo mezclado");
+                } else {
+                    showToast("No hay cartas");
+                    return;
+                }
+            }
+
+            const newDeck = [...gameState.deck];
+            const drawnCard = newDeck.pop();
+            const newHand = [...gameState.hands[myRole], drawnCard];
+
+            await submitDrawAction(newDeck, gameState.discardPile, newHand);
+        }
+
+        window.handleDiscardClick = async () => {
+            if (!canDraw()) return;
+            if (gameState.discardPile.length === 0) return;
+
+            const newDiscardPile = [...gameState.discardPile];
+            const drawnCard = newDiscardPile.pop();
+            const newHand = [...gameState.hands[myRole], drawnCard];
+
+            await submitDrawAction(gameState.deck, newDiscardPile, newHand);
+        }
+
+        function canDraw() {
+            if (!gameState || !currentUser) return false;
+            if (gameState.turn !== currentUser.uid) {
+                showToast("No es tu turno");
+                return false;
+            }
+            if (gameState.phase !== 'draw') {
+                showToast("Ya robaste, debes descartar");
+                return false;
+            }
+            return true;
+        }
+
+        async function submitDrawAction(newDeck, newDiscard, newHand) {
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomCode);
+            try {
+                // Optimistic local update for snappiness
+                localHand = newHand; 
+                selectedCardIndex = localHand.length - 1; // select the newly drawn card
+                
+                await updateDoc(roomRef, {
+                    deck: newDeck,
+                    discardPile: newDiscard,
+                    [`hands.${myRole}`]: newHand,
+                    phase: 'discard'
+                });
+            } catch (e) {
+                console.error("Error drawing:", e);
+                showToast("Error en conexión");
+            }
+        }
+
+        window.submitDiscard = async () => {
+            if (selectedCardIndex === null || !gameState) return;
+            if (gameState.turn !== currentUser.uid || gameState.phase !== 'discard') return;
+
+            const cardToDiscard = localHand[selectedCardIndex];
+            const newHand = [...localHand];
+            newHand.splice(selectedCardIndex, 1);
+            
+            const newDiscard = [...gameState.discardPile, cardToDiscard];
+            const nextTurn = gameState[opponentRole];
+
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomCode);
+            try {
+                selectedCardIndex = null;
+                await updateDoc(roomRef, {
+                    discardPile: newDiscard,
+                    [`hands.${myRole}`]: newHand,
+                    turn: nextTurn,
+                    phase: 'draw'
+                });
+            } catch (e) {
+                console.error("Error discarding:", e);
+            }
+        };
+
+        window.submitCut = async () => {
+            if (selectedCardIndex === null || !gameState) return;
+            if (gameState.turn !== currentUser.uid || gameState.phase !== 'discard') return;
+
+            // In Chinchón, you cut by discarding a card facedown.
+            // We'll remove it from hand, add to discard, and trigger win state.
+            const cardToDiscard = localHand[selectedCardIndex];
+            const newHand = [...localHand];
+            newHand.splice(selectedCardIndex, 1);
+            
+            const newDiscard = [...gameState.discardPile, cardToDiscard];
+
+            const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoomCode);
+            try {
+                await updateDoc(roomRef, {
+                    discardPile: newDiscard,
+                    [`hands.${myRole}`]: newHand,
+                    status: 'finished',
+                    winnerInfo: {
+                        uid: currentUser.uid,
+                        role: myRole
+                    }
+                });
+            } catch (e) {
+                console.error("Error cutting:", e);
+            }
+        };
+
+        function renderEndGame(data) {
+            switchView('endView');
+            const amIWinner = data.winnerInfo.uid === currentUser.uid;
+            
+            const title = document.getElementById('endTitle');
+            title.textContent = amIWinner ? '¡CORTASTE!' : 'EL RIVAL CORTÓ';
+            title.className = amIWinner ? 'text-3xl font-black mb-1 text-green-600' : 'text-3xl font-black mb-1 text-red-600';
+
+            const sub = document.getElementById('endSubtitle');
+            sub.textContent = amIWinner ? 'Ganaste la mano.' : 'Has perdido esta mano.';
+
+            // Render Hands statically
+            const renderStaticHand = (handArr) => {
+                return handArr.map(c => `
+                    <div class="playing-card pointer-events-none" style="margin-left:-4vw">
+                        <div class="card-value ${c.color}">${c.isJoker ? '' : c.value}</div>
+                        <div class="card-suit ${c.color}">${c.icon}</div>
+                        <div class="card-value ${c.color} text-right rotate-180">${c.isJoker ? '' : c.value}</div>
+                    </div>
+                `).join('');
+            };
+
+            const myFinalHand = data.hands[myRole];
+            const oppFinalHand = data.hands[opponentRole];
+
+            document.getElementById('endMyHand').innerHTML = renderStaticHand(myFinalHand);
+            document.getElementById('endOppHand').innerHTML = renderStaticHand(oppFinalHand);
+        }
+
+        // Initialize immediately
+        window.addEventListener('load', () => {
+            initApp();
+        });
+
+    </script>
+</body>
+</html>
